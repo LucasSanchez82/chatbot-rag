@@ -4,6 +4,7 @@ import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/we
 import fs from "fs";
 import "dotenv/config";
 import { FeatureExtractionPipeline } from "@xenova/transformers";
+import { parse } from "csv-parse/sync";
 
 type SimilarityMetric = "cosine" | "dot_product" | "euclidean";
 const dimensions = 1000; // OpenAI text-embedding-3-small model dimensions
@@ -132,9 +133,10 @@ const loadData = async () => {
   const newlyProcessedUrls = [...processedUrls]; // Copy to track new additions
 
   // Filter out already processed URLs
-  const urlsToProcess = franceChallengesData.filter(
-    (url) => !processedUrls.includes(url)
-  );
+  const urlsToProcess = franceChallengesData;
+  // .filter(
+  //   (url) => !processedUrls.includes(url)
+  // );
 
   console.log(`Found ${urlsToProcess.length} new URLs to process`);
 
@@ -193,6 +195,73 @@ const scrapePage = async (url: string) => {
   return (await loader.scrape())?.replace(/<[^>]*>?/gm, "");
 };
 
+// CSV file path
+const csvFilePath = "datas.csv";
+
+// Function to load CSV data into the database
+const loadCsvData = async () => {
+  const collection = await db.collection(ASTRA_DB_COLLECTION);
+
+  try {
+    console.log(`Loading CSV data from ${csvFilePath}...`);
+
+    // Read and parse CSV file
+    const csvContent = fs.readFileSync(csvFilePath, "utf8");
+    const records = parse(csvContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<{
+      question?: string;
+      response?: string;
+      [key: string]: string | undefined;
+    }>;
+
+    console.log(`Found ${records.length} Q&A pairs in CSV`);
+
+    for (const record of records) {
+      console.log("Processing record:", record);
+      const question = record.question?.trim();
+      const response = record.reponse?.trim();
+
+      if (!question || !response) {
+        console.log("Skipping empty question or response");
+        continue;
+      }
+
+      // Create a combined text for better context
+      const combinedText = `Question: ${question}\nRéponse: ${response}`;
+
+      // Generate embeddings for the combined text
+      const output = await embeddingPipeline(combinedText, {
+        pooling: "mean",
+        normalize: true,
+      });
+      const vector = Array.from(output.data);
+
+      // Insert the Q&A pair into the database
+      await collection.insertOne({
+        $vector: vector,
+        text: combinedText,
+        question: question,
+        response: response,
+        source: "csv_training_data",
+        type: "qa_pair",
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log(`Inserted Q&A: ${question.substring(0, 50)}...`);
+    }
+
+    console.log("CSV data loading completed successfully!");
+  } catch (error) {
+    console.error("Error loading CSV data:", error);
+  }
+};
+
 console.log("Seeding database...");
 
-createCollection().then(() => loadData());
+createCollection().then(() => {
+  loadCsvData();
+  loadData();
+});

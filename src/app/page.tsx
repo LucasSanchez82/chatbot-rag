@@ -208,10 +208,10 @@ export default function ChatPage() {
         {/* Quick Questions */}
         <div className="mt-3 flex flex-wrap gap-2">
           {[
-            "Who won the last race?",
-            "Current championship standings",
-            "Upcoming race schedule",
-            "Latest F1 news",
+            "Qu'est-ce que France Challenges ?",
+            "Comment rejoindre France Challenges ?",
+            "Quels sont vos programmes éducatifs ?",
+            "Comment devenir partenaire ?",
           ].map((question) => (
             <button
               key={question}
