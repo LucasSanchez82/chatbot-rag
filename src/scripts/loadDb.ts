@@ -7,9 +7,6 @@ import { FeatureExtractionPipeline } from "@xenova/transformers";
 import { parse } from "csv-parse/sync";
 
 type SimilarityMetric = "cosine" | "dot_product" | "euclidean";
-const dimensions = 1000; // OpenAI text-embedding-3-small model dimensions
-
-console.log(`DEBUG: Using dimensions = ${dimensions}`);
 
 const {
   ASTRA_DB_APPLICATION_TOKEN,
@@ -17,7 +14,6 @@ const {
   ASTRA_DB_COLLECTION,
   ASTRA_DB_ENDPOINT,
   OPENAI_API_KEY,
-  DELETE_EXISTING_DATABASE = "0",
 } = process.env;
 if (
   !ASTRA_DB_APPLICATION_TOKEN ||
@@ -34,33 +30,6 @@ let embeddingPipeline: FeatureExtractionPipeline;
 
 // Track which URLs have been processed
 const processedUrlsFile = "processed_urls.json";
-
-// Existing URLs to scrape
-// const f1Data = [
-//   "https://www.formula1.com/",
-//   "https://www.formula1.com/en/results.html/2024/drivers.html",
-//   "https://www.formula1.com/en/results.html/2024/constructors.html",
-//   "https://www.formula1.com/en/results.html/2024/races.html",
-//   "https://www.formula1.com/en/results.html/2024/fastest-laps.html",
-//   "https://www.formula1.com/en/results.html/2024/qualifying.html",
-//   "https://www.formula1.com/en/results.html/2024/sprint.html",
-//   "https://en.wikipedia.org/wiki/Formula_One",
-//   "https://en.wikipedia.org/wiki/2025_Formula_One_World_Championship",
-//   "https://evrimagaci.org/tpg/2025-formula-1-season-kicks-off-with-thrilling-chinese-grand-prix-269074",
-//   "https://www.formula1.com/en/latest",
-//   // New URLs to scrape
-//   "https://www.formula1.com/en/results/2025/drivers",
-//   "https://www.formula1.com/en/results/2025/constructors",
-//   "https://www.formula1.com/en/results/2025/races",
-//   "https://www.formula1.com/en/results/2025/fastest-laps",
-//   "https://www.formula1.com/en/results/2025/qualifying",
-//   "https://www.formula1.com/en/results/2025/sprint",
-//   "https://www.formula1.com/en/results/2025/sprint-qualifying",
-//   "https://www.formula1.com/en/results/2025/sprint-race",
-//   "https://www.formula1.com/en/results/2025/sprint-race-results",
-//   "https://www.formula1.com/en/results/2025/sprint-race-results-by-driver",
-//   "https://www.formula1.com/en/results/2025/sprint-race-results-by-constructor",
-// ];
 
 const franceChallengesData = [
   "https://france-challenges.com/",
