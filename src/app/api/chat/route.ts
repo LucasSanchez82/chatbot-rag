@@ -1,8 +1,8 @@
-import { DataAPIClient } from "@datastax/astra-db-ts";
 import { pipeline } from "@xenova/transformers";
 import { NextRequest, NextResponse } from "next/server";
 
 import "dotenv/config";
+import { QdrantClient } from "@qdrant/js-client-rest";
 
 const {
   ASTRA_DB_NAMESPACE,
@@ -17,10 +17,8 @@ if (!ASTRA_DB_APPLICATION_TOKEN || !ASTRA_DB_ENDPOINT) {
   throw new Error("Missing required Astra DB environment variables");
 }
 
-const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN);
-const db = client.db(ASTRA_DB_ENDPOINT, {
-  keyspace: ASTRA_DB_NAMESPACE,
-});
+// const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN);
+const client = new QdrantClient({ host: "localhost", port: 6333 });
 
 // Initialize the embedding pipeline
 // Using a model that produces vectors compatible with the database
@@ -64,21 +62,17 @@ export async function POST(req: NextRequest) {
       if (!ASTRA_DB_COLLECTION) {
         throw new Error("ASTRA_DB_COLLECTION environment variable is not set");
       }
+      const results = await client.query(ASTRA_DB_COLLECTION, {
+        query: vector,
+        with_payload: true,
+        limit: 20,
+      });
 
-      const collection = await db.collection(ASTRA_DB_COLLECTION);
-      const results = await collection.find(
-        {},
-        {
-          sort: {
-            $vector: vector,
-          },
-          limit: 20, // increased the limit to 20 from 10
-        }
-      );
-
-      console.log("Collection, results:", { results, collection });
-      const docs = await results.toArray();
-      docContext = JSON.stringify(docs?.map((doc) => doc.text));
+      console.log("Collection, results:", results);
+      const docs = await results.points
+        .map((res) => res?.payload?.text ?? null)
+        .filter(Boolean);
+      docContext = JSON.stringify(docs);
       console.log("Document context:", docContext);
       console.log("Found relevant documents:", docs?.length);
     } catch (err) {
