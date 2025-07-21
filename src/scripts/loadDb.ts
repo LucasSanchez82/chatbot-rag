@@ -1,10 +1,10 @@
-import { DataAPIClient } from "@datastax/astra-db-ts";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/web/puppeteer";
 import fs from "fs";
 import "dotenv/config";
 import { FeatureExtractionPipeline } from "@xenova/transformers";
 import { parse } from "csv-parse/sync";
+import { QdrantClient } from "@qdrant/js-client-rest";
 
 type SimilarityMetric = "cosine" | "dot_product" | "euclidean";
 
@@ -37,11 +37,9 @@ const franceChallengesData = [
   "https://france-challenges.com/association",
   "https://france-challenges.com/rejoignez-nous",
 ];
-const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN);
+// const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN);
 
-const db = client.db(ASTRA_DB_ENDPOINT, {
-  keyspace: ASTRA_DB_NAMESPACE,
-});
+const client = new QdrantClient({ host: "localhost", port: 6333 });
 
 const splitter = new RecursiveCharacterTextSplitter({
   chunkSize: 512,
@@ -83,13 +81,16 @@ const createCollection = async (
     console.log(
       `Creating collection ${ASTRA_DB_COLLECTION} with similarity metric ${similarityMetric}...`
     );
-    const res = await db.createCollection(ASTRA_DB_COLLECTION, {
-      vector: {
-        dimension: 384, // MiniLM-L6-v2 output dimension
-        metric: similarityMetric,
-      },
-    });
-    console.log("Collection created:", res);
+    const createdCollection = await client.createCollection(
+      ASTRA_DB_COLLECTION,
+      {
+        vectors: {
+          size: 384, // MiniLM-L6-v2 output dimension
+          distance: "Dot", // Use dot like in documenttion of Qdrant
+        },
+      }
+    );
+    console.log("Collection created:", createdCollection);
   } catch (error) {
     // Collection might already exist, continue anyway
     console.log("Collection might already exist, continuing...", error);
@@ -97,17 +98,13 @@ const createCollection = async (
 };
 
 const loadData = async () => {
-  const collection = await db.collection(ASTRA_DB_COLLECTION);
   const processedUrls = getProcessedUrls();
   const newlyProcessedUrls = [...processedUrls]; // Copy to track new additions
-
-  // Filter out already processed URLs
   const urlsToProcess = franceChallengesData;
-  // .filter(
-  //   (url) => !processedUrls.includes(url)
-  // );
 
   console.log(`Found ${urlsToProcess.length} new URLs to process`);
+
+  const allPoints = [];
 
   for (const url of urlsToProcess) {
     console.log(`Processing ${url}...`);
@@ -125,13 +122,16 @@ const loadData = async () => {
         });
         const vector = Array.from(output.data);
 
-        const res = await collection.insertOne({
-          $vector: vector,
-          text: chunk,
-          url: url, // Store source URL for reference
-          timestamp: new Date().toISOString(), // Add timestamp for tracking
+        allPoints.push({
+          id: crypto.randomUUID(), // Use UUID for unique IDs
+          vector: vector,
+          payload: {
+            text: chunk,
+            url,
+            timestamp: new Date().toISOString(), // Add timestamp for tracking
+            source: "web_scraping",
+          },
         });
-        console.log(res);
       }
 
       // Mark URL as processed
@@ -140,6 +140,21 @@ const loadData = async () => {
       console.log(`Successfully processed ${url}`);
     } catch (error) {
       console.error(`Error processing ${url}:`, error);
+    }
+  }
+
+  // Batch insert all points at once
+  if (allPoints.length > 0) {
+    console.log(`Inserting ${allPoints.length} points in batch...`);
+    try {
+      const createdVectors = await client.upsert(ASTRA_DB_COLLECTION, {
+        wait: true,
+        points: allPoints,
+      });
+      console.log("Batch insert completed:", createdVectors);
+    } catch (error) {
+      console.error("Detailed error:", error);
+      throw error;
     }
   }
 };
@@ -169,8 +184,6 @@ const csvFilePath = "datas.csv";
 
 // Function to load CSV data into the database
 const loadCsvData = async () => {
-  const collection = await db.collection(ASTRA_DB_COLLECTION);
-
   try {
     console.log(`Loading CSV data from ${csvFilePath}...`);
 
@@ -187,6 +200,8 @@ const loadCsvData = async () => {
     }>;
 
     console.log(`Found ${records.length} Q&A pairs in CSV`);
+
+    const allPoints = [];
 
     for (const record of records) {
       console.log("Processing record:", record);
@@ -208,18 +223,36 @@ const loadCsvData = async () => {
       });
       const vector = Array.from(output.data);
 
-      // Insert the Q&A pair into the database
-      await collection.insertOne({
-        $vector: vector,
-        text: combinedText,
-        question: question,
-        response: response,
-        source: "csv_training_data",
-        type: "qa_pair",
-        timestamp: new Date().toISOString(),
+      // Add the Q&A pair to the batch
+      allPoints.push({
+        id: crypto.randomUUID(), // Use UUID for unique IDs
+        vector,
+        payload: {
+          text: combinedText,
+          question,
+          response,
+          source: "csv_training_data",
+          type: "qa_pair",
+          timestamp: new Date().toISOString(),
+        },
       });
 
-      console.log(`Inserted Q&A: ${question.substring(0, 50)}...`);
+      console.log(`Prepared Q&A: ${question.substring(0, 50)}...`);
+    }
+
+    // Batch insert all Q&A pairs at once
+    if (allPoints.length > 0) {
+      console.log(`Inserting ${allPoints.length} Q&A pairs in batch...`);
+      try {
+        const createdVectors = await client.upsert(ASTRA_DB_COLLECTION, {
+          wait: true,
+          points: allPoints,
+        });
+        console.log("CSV batch insert completed:", createdVectors);
+      } catch (error) {
+        console.error("Detailed error:", error);
+        throw error;
+      }
     }
 
     console.log("CSV data loading completed successfully!");
@@ -230,7 +263,13 @@ const loadCsvData = async () => {
 
 console.log("Seeding database...");
 
-createCollection().then(() => {
-  loadCsvData();
-  loadData();
+createCollection().then(async () => {
+  try {
+    await loadCsvData();
+    await loadData();
+    console.log("All data loading completed successfully!");
+  } catch (error) {
+    console.error("Error during data loading:", error);
+    process.exit(1);
+  }
 });
