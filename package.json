@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "bun run src/scripts/loadDb.ts"
+    "seed": "bun run src/scripts/loadDb.ts",
+    "setup-openai": "bun run src/scripts/createOpenaiFile.ts"
   },
   "dependencies": {
     "@datastax/astra-db-ts": "^2.0.1",
