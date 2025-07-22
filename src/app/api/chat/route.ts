@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
 
     console.log("Starting gemini completion...");
     const openaiAiResponse = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4",
       messages: [template, ...messages],
       max_tokens: 1000,
       temperature: 0.7,
