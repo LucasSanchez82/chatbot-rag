@@ -274,7 +274,7 @@ console.log("Seeding database...");
 createCollection().then(async () => {
   try {
     await loadCsvData();
-    // await loadData();
+    await loadData();
     console.log("All data loading completed successfully!");
   } catch (error) {
     console.error("Error during data loading:", error);
