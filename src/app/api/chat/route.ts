@@ -1,31 +1,54 @@
-import { pipeline } from "@xenova/transformers";
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 
 import "dotenv/config";
 import { QdrantClient } from "@qdrant/js-client-rest";
 
 const {
-  ASTRA_DB_NAMESPACE,
   ASTRA_DB_COLLECTION,
   ASTRA_DB_ENDPOINT,
   ASTRA_DB_APPLICATION_TOKEN,
   OPEN_ROUTER_API_KEY,
+  OPENAI_API_KEY,
+  OPENAI_EMBEDDING_MODEL,
+  EMBEDDING_MODEL_DIMENSION,
 } = process.env;
 
 // Validate required environment variables
-if (!ASTRA_DB_APPLICATION_TOKEN || !ASTRA_DB_ENDPOINT) {
-  throw new Error("Missing required Astra DB environment variables");
+if (
+  !ASTRA_DB_APPLICATION_TOKEN ||
+  !ASTRA_DB_ENDPOINT ||
+  !OPENAI_API_KEY ||
+  !OPENAI_EMBEDDING_MODEL ||
+  !EMBEDDING_MODEL_DIMENSION
+) {
+  throw new Error("Missing required environment variables");
 }
 
 // const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN);
 const client = new QdrantClient({ host: "localhost", port: 6333 });
 
-// Initialize the embedding pipeline
-// Using a model that produces vectors compatible with the database
-const embeddingPipeline = await pipeline(
-  "feature-extraction",
-  "Xenova/all-MiniLM-L6-v2"
-);
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
+});
+
+const embeddingDimensions = parseInt(EMBEDDING_MODEL_DIMENSION, 10);
+
+// Function to generate embeddings using OpenAI
+const generateEmbedding = async (text: string): Promise<number[]> => {
+  try {
+    const response = await openai.embeddings.create({
+      model: OPENAI_EMBEDDING_MODEL,
+      input: text,
+      dimensions: embeddingDimensions,
+    });
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error("Error generating embedding:", error);
+    throw error;
+  }
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,28 +57,11 @@ export async function POST(req: NextRequest) {
 
     let docContext: string;
 
-    // Generate embeddings using Xenova
+    // Generate embeddings using OpenAI
     console.log("Generating embeddings...");
-    const output = await embeddingPipeline(latestMessages, {
-      pooling: "mean",
-      normalize: true,
-    });
+    const vector = await generateEmbedding(latestMessages);
 
-    // Convert to array and ensure proper dimension
-    let vector = Array.from(output.data);
-    console.log("Original vector dimension:", vector.length);
-
-    // The Astra DB collection expects 384 dimensions, but all-MiniLM-L6-v2 produces 384
-    // We need to pad the vector to match the expected dimension
-    if (vector.length < 384) {
-      const padding = new Array(384 - vector.length).fill(0);
-      vector = [...vector, ...padding];
-      console.log("Padded vector dimension:", vector.length);
-    } else if (vector.length > 384) {
-      // Truncate if somehow longer than expected
-      vector = vector.slice(0, 384);
-      console.log("Truncated vector dimension:", vector.length);
-    }
+    console.log("Generated vector dimension:", vector.length);
 
     // fetching the documents from the database based on the vector embedding
     try {
@@ -65,7 +71,7 @@ export async function POST(req: NextRequest) {
       const results = await client.query(ASTRA_DB_COLLECTION, {
         query: vector,
         with_payload: true,
-        limit: 20,
+        limit: 10,
       });
 
       console.log("Collection, results:", results);

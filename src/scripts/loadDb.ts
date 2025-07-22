@@ -2,9 +2,9 @@ import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { PuppeteerWebBaseLoader } from "@langchain/community/document_loaders/web/puppeteer";
 import fs from "fs";
 import "dotenv/config";
-import { FeatureExtractionPipeline } from "@xenova/transformers";
 import { parse } from "csv-parse/sync";
 import { QdrantClient } from "@qdrant/js-client-rest";
+import OpenAI from "openai";
 
 type SimilarityMetric = "cosine" | "dot_product" | "euclidean";
 
@@ -14,20 +14,43 @@ const {
   ASTRA_DB_COLLECTION,
   ASTRA_DB_ENDPOINT,
   OPENAI_API_KEY,
+  EMBEDDING_MODEL_DIMENSION,
+  OPENAI_EMBEDDING_MODEL,
 } = process.env;
 if (
   !ASTRA_DB_APPLICATION_TOKEN ||
   !ASTRA_DB_NAMESPACE ||
   !ASTRA_DB_COLLECTION ||
   !ASTRA_DB_ENDPOINT ||
+  !EMBEDDING_MODEL_DIMENSION ||
+  !OPENAI_EMBEDDING_MODEL ||
   !OPENAI_API_KEY
 ) {
   throw new Error(
-    "Please set the environment variables: ASTRA_DB_APPLICATION_TOKEN, ASTRA_DB_NAMESPACE, ASTRA_DB_COLLECTION, ASTRA_DB_ENDPOINT, OPENAI_API_KEY"
+    "Please set the environment variables: ASTRA_DB_APPLICATION_TOKEN, ASTRA_DB_NAMESPACE, ASTRA_DB_COLLECTION, ASTRA_DB_ENDPOINT, OPENAI_API_KEY, EMBEDDING_MODEL_DIMENSION, OPENAI_EMBEDDING_MODEL"
   );
 }
-let embeddingPipeline: FeatureExtractionPipeline;
 
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
+});
+
+// Function to generate embeddings using OpenAI
+const generateEmbedding = async (text: string): Promise<number[]> => {
+  try {
+    const response = await openai.embeddings.create({
+      model: OPENAI_EMBEDDING_MODEL,
+      input: text,
+    });
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error("Error generating embedding:", error);
+    throw error;
+  }
+};
+
+const embeddingDimensions = parseInt(EMBEDDING_MODEL_DIMENSION, 10);
 // Track which URLs have been processed
 const processedUrlsFile = "processed_urls.json";
 
@@ -42,7 +65,7 @@ const franceChallengesData = [
 const client = new QdrantClient({ host: "localhost", port: 6333 });
 
 const splitter = new RecursiveCharacterTextSplitter({
-  chunkSize: 512,
+  chunkSize: embeddingDimensions,
   chunkOverlap: 100,
 });
 
@@ -68,15 +91,8 @@ const saveProcessedUrls = (urls: string[]) => {
 };
 
 const createCollection = async (
-  similarityMetric: SimilarityMetric = "dot_product"
+  similarityMetric: SimilarityMetric = "cosine" // documentation openai
 ) => {
-  // Initialize the embedding pipeline with a sentence transformer model
-  const { pipeline } = await import("@xenova/transformers");
-  embeddingPipeline = await pipeline(
-    "feature-extraction",
-    "Xenova/all-MiniLM-L6-v2"
-  );
-
   try {
     console.log(
       `Creating collection ${ASTRA_DB_COLLECTION} with similarity metric ${similarityMetric}...`
@@ -85,8 +101,8 @@ const createCollection = async (
       ASTRA_DB_COLLECTION,
       {
         vectors: {
-          size: 384, // MiniLM-L6-v2 output dimension
-          distance: "Dot", // Use dot like in documenttion of Qdrant
+          size: embeddingDimensions, // OpenAI embedding dimensions
+          distance: "Dot", // Use dot product like in documentation of qdrant
         },
       }
     );
@@ -115,12 +131,8 @@ const loadData = async () => {
       console.log(`Generated ${chunks.length} chunks from ${url}`);
 
       for (const chunk of chunks) {
-        // Generate embeddings using the sentence transformer model
-        const output = await embeddingPipeline(chunk, {
-          pooling: "mean",
-          normalize: true,
-        });
-        const vector = Array.from(output.data);
+        // Generate embeddings using OpenAI
+        const vector = await generateEmbedding(chunk);
 
         allPoints.push({
           id: crypto.randomUUID(), // Use UUID for unique IDs
@@ -216,12 +228,8 @@ const loadCsvData = async () => {
       // Create a combined text for better context
       const combinedText = `Question: ${question}\nRéponse: ${response}`;
 
-      // Generate embeddings for the combined text
-      const output = await embeddingPipeline(combinedText, {
-        pooling: "mean",
-        normalize: true,
-      });
-      const vector = Array.from(output.data);
+      // Generate embeddings using OpenAI
+      const vector = await generateEmbedding(combinedText);
 
       // Add the Q&A pair to the batch
       allPoints.push({
@@ -266,7 +274,7 @@ console.log("Seeding database...");
 createCollection().then(async () => {
   try {
     await loadCsvData();
-    await loadData();
+    // await loadData();
     console.log("All data loading completed successfully!");
   } catch (error) {
     console.error("Error during data loading:", error);
