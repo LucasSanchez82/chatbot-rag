@@ -46,7 +46,7 @@ Utilise les fichiers qui t'ont été fournis pour répondre aux questions sur :
 Formate tes réponses en utilisant le markdown quand c'est approprié.
 Si tu n'es pas sûr de la réponse, dis que tu ne sais pas.
 Ne mentionne pas la source de tes informations sauf si c'est explicitement demandé.`,
-    model: "gpt-4o-mini",
+    model: "gpt-3.5-turbo",
     tools: [{ type: "file_search" }],
   });
 
