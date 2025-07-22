@@ -119,23 +119,16 @@ export async function POST(req: NextRequest) {
     };
 
     console.log("Starting gemini completion...");
-    const openRouterResponse = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPEN_ROUTER_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.0-flash-001",
-          messages: [template, ...messages],
-        }),
-      }
-    );
-
-    const res = await openRouterResponse.json();
-    return new NextResponse(JSON.stringify(res), {
+    const openaiAiResponse = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [template, ...messages],
+      max_tokens: 1000,
+      temperature: 0.7,
+      top_p: 1.0,
+      n: 1,
+      stream: false,
+    });
+    return new NextResponse(JSON.stringify(openaiAiResponse), {
       headers: {
         "Content-Type": "application/json",
         "Cache-Control": "no-cache",
