@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { PRICING, SIMILARITY_THRESHOLD, SYSTEM_PROMPTS } from "./constants";
-
+import { prisma } from "@/lib/prisma";
 // Types
 export interface EnvConfig {
   QDRANT_URL: string;
@@ -77,11 +77,26 @@ export const calculateCost = (
 // Logging utilities
 export const logTokenUsage = (
   operation: string,
+  model: string,
   totalTokens: number,
   inputTokens: number,
   outputTokens: number,
   cost: number
 ) => {
+  prisma.cost
+    .create({
+      data: {
+        model: model,
+        tokens_input: inputTokens,
+        tokens_output: outputTokens,
+      },
+    })
+    .then(() => {
+      console.log(`Usage des tokens enregistre en base de données`);
+    })
+    .catch((error) => {
+      console.error("Error logging token usage:", error);
+    });
   console.log(
     `${operation} - Tokens utilisés : ${totalTokens} (input: ${inputTokens}, output: ${outputTokens}), Cout: $${cost.toFixed(
       4
@@ -89,11 +104,29 @@ export const logTokenUsage = (
   );
 };
 
-export const logEmbeddingUsage = (embeddingTokens: number, cost: number) => {
+export const logEmbeddingUsage = (
+  embeddingTokens: number,
+  cost: number,
+  model: string
+) => {
+  prisma.cost
+    .create({
+      data: {
+        model: model,
+        tokens_input: embeddingTokens,
+        tokens_output: 0, // Embeddings don't have output tokens
+      },
+    })
+    .then(() => {
+      console.log(`Embedding tokens usage logged in database`);
+    })
+    .catch((error) => {
+      console.error("Error logging embedding usage:", error);
+    });
   console.log(
     `Embedding - Tokens utilisés : ${embeddingTokens}, Cout: $${cost.toFixed(
       6
-    )}`
+    )}, Modèle: ${model}`
   );
 };
 
@@ -128,6 +161,7 @@ export const isQuestionRelevant = async (
 
       logTokenUsage(
         "Test Pertinence",
+        "gpt-4",
         totalTokens,
         inputTokens,
         outputTokens,
@@ -167,7 +201,11 @@ export const checkSimilarityAndDecideModel = async (
         0
       );
 
-      logEmbeddingUsage(embeddingTokens, embeddingCost);
+      logEmbeddingUsage(
+        embeddingTokens,
+        embeddingCost,
+        env.OPENAI_EMBEDDING_MODEL
+      );
     }
 
     // Search for similar messages in the knowledge base
@@ -232,7 +270,14 @@ export const createWebSearchCompletion = async (
       outputTokens
     );
 
-    logTokenUsage("Web search", totalTokens, inputTokens, outputTokens, cost);
+    logTokenUsage(
+      "Web search",
+      "gpt-4o-search-preview",
+      totalTokens,
+      inputTokens,
+      outputTokens,
+      cost
+    );
   }
 
   return completion;
@@ -271,6 +316,7 @@ export const createKnowledgeBaseCompletion = async (
 
     logTokenUsage(
       "Base de connaissances",
+      "gpt-4",
       totalTokens,
       inputTokens,
       outputTokens,
