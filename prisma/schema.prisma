@@ -23,12 +23,12 @@ model TransactionItem {
   cost          Decimal  @db.Decimal(20, 15)
   date          DateTime @default(now())
 
-  groupId Int?
+  groupId String?
   group   TransactionGroup? @relation(fields: [groupId], references: [id])
 }
 
 model TransactionGroup {
-  id            Int               @id @default(autoincrement())
+  id            String            @id @default(cuid())
   user_question String
   items         TransactionItem[]
 }

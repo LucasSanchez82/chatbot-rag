@@ -31,16 +31,26 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
+    const groupTransactionIdentifier = crypto.randomUUID();
+    console.log(
+      `Starting transaction group with identifier: ${groupTransactionIdentifier}`
+    );
     // Check similarity and decide on model type (saves embedding cost automatically)
     const { useWebSearch, context, maxScore } =
-      await checkSimilarityAndDecideModel(openai, client, env, lastMessage);
+      await checkSimilarityAndDecideModel(
+        openai,
+        client,
+        env,
+        lastMessage,
+        groupTransactionIdentifier
+      );
 
     if (useWebSearch) {
       // Check relevance (saves relevance cost automatically)
       const { isRelevant } = await isQuestionRelevantForWebSearch(
         openai,
-        lastMessage
+        lastMessage,
+        groupTransactionIdentifier
       );
 
       if (!isRelevant) {
@@ -62,7 +72,8 @@ export async function POST(req: NextRequest) {
       const { completion } = await createWebSearchCompletion(
         openai,
         messages,
-        lastMessage
+        lastMessage,
+        groupTransactionIdentifier
       );
 
       return NextResponse.json(completion, {
@@ -82,7 +93,8 @@ export async function POST(req: NextRequest) {
         messages,
         context,
         lastMessage,
-        lastMessage
+        lastMessage,
+        groupTransactionIdentifier
       );
 
       return NextResponse.json(completion, {

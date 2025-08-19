@@ -98,11 +98,21 @@ export const saveAiOperationCost = async (
   model: string,
   inputTokens: number,
   outputTokens: number,
-  cost: number
+  cost: number,
+  groupTransactionIdentifier: string
 ) => {
   try {
     await prisma.transactionItem.create({
       data: {
+        group: {
+          connectOrCreate: {
+            where: { id: groupTransactionIdentifier },
+            create: {
+              id: groupTransactionIdentifier,
+              user_question: userQuestion,
+            },
+          },
+        },
         operation,
         model,
         tokens_input: inputTokens,
@@ -127,7 +137,8 @@ export const logEmbeddingUsage = (embeddingTokens: number, cost: number) => {
 // Question relevance check
 export const isQuestionRelevantForWebSearch = async (
   openai: OpenAI,
-  message: string
+  message: string,
+  groupTransactionIdentifier: string
 ): Promise<{
   isRelevant: boolean;
   usage?: OpenAI.CompletionUsage;
@@ -174,7 +185,8 @@ export const isQuestionRelevantForWebSearch = async (
         "gpt-4",
         inputTokens,
         outputTokens,
-        cost
+        cost,
+        groupTransactionIdentifier
       );
     }
 
@@ -196,7 +208,8 @@ export const checkSimilarityAndDecideModel = async (
   openai: OpenAI,
   client: QdrantClient,
   env: EnvConfig,
-  message: string
+  message: string,
+  groupTransactionIdentifier: string
 ): Promise<SimilarityResult> => {
   try {
     // Create embedding for the user's question
@@ -224,7 +237,8 @@ export const checkSimilarityAndDecideModel = async (
         env.OPENAI_EMBEDDING_MODEL,
         embeddingTokens,
         0,
-        embeddingCost
+        embeddingCost,
+        groupTransactionIdentifier
       );
     }
 
@@ -266,7 +280,8 @@ export const checkSimilarityAndDecideModel = async (
 export const createWebSearchCompletion = async (
   openai: OpenAI,
   messages: ChatMessage[],
-  userQuestion: string
+  userQuestion: string,
+  groupTransactionIdentifier: string
 ) => {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-search-preview",
@@ -304,7 +319,8 @@ export const createWebSearchCompletion = async (
       "gpt-4o-search-preview",
       inputTokens,
       outputTokens,
-      cost
+      cost,
+      groupTransactionIdentifier
     );
   }
 
@@ -317,7 +333,8 @@ export const createKnowledgeBaseCompletion = async (
   messages: ChatMessage[],
   context: string,
   lastMessage: string,
-  userQuestion: string
+  userQuestion: string,
+  groupTransactionIdentifier: string
 ) => {
   // Create system message with knowledge base context
   const systemMessage = {
@@ -360,7 +377,8 @@ export const createKnowledgeBaseCompletion = async (
       "gpt-4",
       inputTokens,
       outputTokens,
-      cost
+      cost,
+      groupTransactionIdentifier
     );
   }
 
