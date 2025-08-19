@@ -28,7 +28,18 @@ model TransactionItem {
 }
 
 model TransactionGroup {
-  id            String            @id @default(cuid())
+  id            String @id @default(cuid())
   user_question String
-  items         TransactionItem[]
+
+  operationId Int?
+
+  operation TransactionGroupOperation? @relation(fields: [operationId], references: [id])
+  items     TransactionItem[]
+}
+
+model TransactionGroupOperation {
+  id        Int    @id @default(autoincrement())
+  operation String @unique
+
+  groups TransactionGroup[]
 }

@@ -4,6 +4,7 @@ const main = async () => {
   const groups = await prisma.transactionGroup.findMany({
     include: {
       items: true,
+      operation: true,
     },
   });
   const groupCosts = groups.map((group) =>
@@ -13,6 +14,7 @@ const main = async () => {
     groupCosts.map((cost, index) => ({
       question: groups[index].user_question,
       cost: cost.toFixed(6),
+      operation: groups[index].operation?.operation || "N/A",
     }))
   );
 

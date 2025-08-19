@@ -99,7 +99,8 @@ export const saveAiOperationCost = async (
   inputTokens: number,
   outputTokens: number,
   cost: number,
-  groupTransactionIdentifier: string
+  groupTransactionIdentifier: string,
+  groupOperation: "web_search" | "knowledge_base" | null
 ) => {
   try {
     await prisma.transactionItem.create({
@@ -120,6 +121,24 @@ export const saveAiOperationCost = async (
         cost,
       },
     });
+    if (groupOperation) {
+      console.log(
+        `Saving operation "${groupOperation}" for group ${groupTransactionIdentifier}`
+      );
+      await prisma.transactionGroup.update({
+        where: { id: groupTransactionIdentifier },
+        data: {
+          operation: groupOperation
+            ? {
+                connectOrCreate: {
+                  create: { operation: groupOperation },
+                  where: { operation: groupOperation },
+                },
+              }
+            : undefined,
+        },
+      });
+    }
     console.log(`${operation} cost saved to database: $${cost.toFixed(6)}`);
   } catch (error) {
     console.error(`Error saving ${operation} cost:`, error);
@@ -186,7 +205,8 @@ export const isQuestionRelevantForWebSearch = async (
         inputTokens,
         outputTokens,
         cost,
-        groupTransactionIdentifier
+        groupTransactionIdentifier,
+        null
       );
     }
 
@@ -238,7 +258,8 @@ export const checkSimilarityAndDecideModel = async (
         embeddingTokens,
         0,
         embeddingCost,
-        groupTransactionIdentifier
+        groupTransactionIdentifier,
+        null
       );
     }
 
@@ -320,7 +341,8 @@ export const createWebSearchCompletion = async (
       inputTokens,
       outputTokens,
       cost,
-      groupTransactionIdentifier
+      groupTransactionIdentifier,
+      "web_search"
     );
   }
 
@@ -378,7 +400,8 @@ export const createKnowledgeBaseCompletion = async (
       inputTokens,
       outputTokens,
       cost,
-      groupTransactionIdentifier
+      groupTransactionIdentifier,
+      "knowledge_base"
     );
   }
 
