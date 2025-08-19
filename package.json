@@ -9,7 +9,8 @@
     "lint": "next lint",
     "seed": "bun run src/scripts/loadDb.ts",
     "setup-openai": "bun run src/scripts/createOpenaiFile.ts",
-    "test-score": "bun run src/scripts/testScoreQdrant.ts"
+    "test-score": "bun run src/scripts/testScoreQdrant.ts",
+    "print-costs": "bun run src/scripts/printCosts.ts"
   },
   "dependencies": {
     "@datastax/astra-db-ts": "^2.0.1",

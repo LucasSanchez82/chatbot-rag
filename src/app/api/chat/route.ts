@@ -4,7 +4,7 @@ import "dotenv/config";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import {
   getenv,
-  isQuestionRelevant,
+  isQuestionRelevantForWebSearch,
   checkSimilarityAndDecideModel,
   createWebSearchCompletion,
   createKnowledgeBaseCompletion,
@@ -32,16 +32,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check similarity and decide on model type
+    // Check similarity and decide on model type (saves embedding cost automatically)
     const { useWebSearch, context, maxScore } =
       await checkSimilarityAndDecideModel(openai, client, env, lastMessage);
 
     if (useWebSearch) {
-      const isRelevant = await isQuestionRelevant(openai, lastMessage);
+      // Check relevance (saves relevance cost automatically)
+      const { isRelevant } = await isQuestionRelevantForWebSearch(
+        openai,
+        lastMessage
+      );
 
       if (!isRelevant) {
         console.log(`Question non pertinente: ${lastMessage}`);
-
         return NextResponse.json(POLITE_REFUSAL_RESPONSE, {
           headers: {
             "Content-Type": "application/json",
@@ -55,7 +58,12 @@ export async function POST(req: NextRequest) {
         `Question pertinente, recherche dans le web... (max similarity: ${maxScore})`
       );
 
-      const completion = await createWebSearchCompletion(openai, messages);
+      // Web search completion (saves web search cost automatically)
+      const { completion } = await createWebSearchCompletion(
+        openai,
+        messages,
+        lastMessage
+      );
 
       return NextResponse.json(completion, {
         headers: {
@@ -68,10 +76,12 @@ export async function POST(req: NextRequest) {
       console.log(`Using knowledge base model (max similarity: ${maxScore})`);
       console.log("Context found:", context.length > 0 ? "Yes" : "No");
 
-      const completion = await createKnowledgeBaseCompletion(
+      // Knowledge base completion (saves knowledge base cost automatically)
+      const { completion } = await createKnowledgeBaseCompletion(
         openai,
         messages,
         context,
+        lastMessage,
         lastMessage
       );
 

@@ -14,10 +14,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Cost {
+model TransactionItem {
   id            String   @id @default(cuid())
+  operation     String // "embedding", "relevance", "web_search", "knowledge_base"
   model         String
   tokens_input  Int
   tokens_output Int
+  cost          Decimal  @db.Decimal(20, 15)
   date          DateTime @default(now())
+
+  groupId Int?
+  group   TransactionGroup? @relation(fields: [groupId], references: [id])
+}
+
+model TransactionGroup {
+  id            Int               @id @default(autoincrement())
+  user_question String
+  items         TransactionItem[]
 }

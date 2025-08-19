@@ -19,6 +19,7 @@ export interface SimilarityResult {
   useWebSearch: boolean;
   context: string;
   maxScore: number;
+  embeddingCost: number;
 }
 
 export const getenv = (): EnvConfig => {
@@ -83,20 +84,6 @@ export const logTokenUsage = (
   outputTokens: number,
   cost: number
 ) => {
-  prisma.cost
-    .create({
-      data: {
-        model: model,
-        tokens_input: inputTokens,
-        tokens_output: outputTokens,
-      },
-    })
-    .then(() => {
-      console.log(`Usage des tokens enregistre en base de données`);
-    })
-    .catch((error) => {
-      console.error("Error logging token usage:", error);
-    });
   console.log(
     `${operation} - Tokens utilisés : ${totalTokens} (input: ${inputTokens}, output: ${outputTokens}), Cout: $${cost.toFixed(
       4
@@ -104,44 +91,55 @@ export const logTokenUsage = (
   );
 };
 
-export const logEmbeddingUsage = (
-  embeddingTokens: number,
-  cost: number,
-  model: string
+// Save individual AI operation cost to database
+export const saveAiOperationCost = async (
+  userQuestion: string,
+  operation: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  cost: number
 ) => {
-  prisma.cost
-    .create({
+  try {
+    await prisma.transactionItem.create({
       data: {
-        model: model,
-        tokens_input: embeddingTokens,
-        tokens_output: 0, // Embeddings don't have output tokens
+        operation,
+        model,
+        tokens_input: inputTokens,
+        tokens_output: outputTokens,
+        cost,
       },
-    })
-    .then(() => {
-      console.log(`Embedding tokens usage logged in database`);
-    })
-    .catch((error) => {
-      console.error("Error logging embedding usage:", error);
     });
+    console.log(`${operation} cost saved to database: $${cost.toFixed(6)}`);
+  } catch (error) {
+    console.error(`Error saving ${operation} cost:`, error);
+  }
+};
+
+export const logEmbeddingUsage = (embeddingTokens: number, cost: number) => {
   console.log(
     `Embedding - Tokens utilisés : ${embeddingTokens}, Cout: $${cost.toFixed(
       6
-    )}, Modèle: ${model}`
+    )}`
   );
 };
 
 // Question relevance check
-export const isQuestionRelevant = async (
+export const isQuestionRelevantForWebSearch = async (
   openai: OpenAI,
   message: string
-): Promise<boolean> => {
+): Promise<{
+  isRelevant: boolean;
+  usage?: OpenAI.CompletionUsage;
+  cost: number;
+}> => {
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         {
           role: "system",
-          content: SYSTEM_PROMPTS.RELEVANCE_FILTER,
+          content: SYSTEM_PROMPTS.RELEVANCE_FILTER_FOR_WEB_SEARCH,
         },
         {
           role: "user",
@@ -153,11 +151,12 @@ export const isQuestionRelevant = async (
     });
 
     // Log token usage for relevance check
+    let cost = 0;
     if (response.usage) {
       const totalTokens = response.usage.total_tokens;
       const inputTokens = response.usage.prompt_tokens;
       const outputTokens = response.usage.completion_tokens;
-      const cost = calculateCost("gpt-4", inputTokens, outputTokens);
+      cost = calculateCost("gpt-4", inputTokens, outputTokens);
 
       logTokenUsage(
         "Test Pertinence",
@@ -167,14 +166,28 @@ export const isQuestionRelevant = async (
         outputTokens,
         cost
       );
+
+      // Save relevance check cost to database
+      await saveAiOperationCost(
+        message,
+        "relevance",
+        "gpt-4",
+        inputTokens,
+        outputTokens,
+        cost
+      );
     }
 
     const answer = response.choices[0].message.content?.trim().toLowerCase();
-    return answer === "oui";
+    return {
+      isRelevant: answer === "oui",
+      usage: response.usage,
+      cost,
+    };
   } catch (error) {
     console.error("Error checking question relevance:", error);
     // En cas d'erreur, on autorise la question par défaut
-    return true;
+    return { isRelevant: true, cost: 0 };
   }
 };
 
@@ -193,18 +206,25 @@ export const checkSimilarityAndDecideModel = async (
     });
 
     // Log embedding cost
+    let embeddingCost = 0;
     if (vector.usage) {
       const embeddingTokens = vector.usage.total_tokens;
-      const embeddingCost = calculateCost(
+      embeddingCost = calculateCost(
         env.OPENAI_EMBEDDING_MODEL,
         embeddingTokens,
         0
       );
 
-      logEmbeddingUsage(
+      logEmbeddingUsage(embeddingTokens, embeddingCost);
+
+      // Save embedding cost to database
+      await saveAiOperationCost(
+        message,
+        "embedding",
+        env.OPENAI_EMBEDDING_MODEL,
         embeddingTokens,
-        embeddingCost,
-        env.OPENAI_EMBEDDING_MODEL
+        0,
+        embeddingCost
       );
     }
 
@@ -234,18 +254,19 @@ export const checkSimilarityAndDecideModel = async (
     const useWebSearch = maxScore < SIMILARITY_THRESHOLD;
     console.log("Using web search:", useWebSearch);
 
-    return { useWebSearch, context, maxScore };
+    return { useWebSearch, context, maxScore, embeddingCost };
   } catch (error) {
     console.error("Error checking similarity:", error);
     // If there's an error with similarity check, default to web search
-    return { useWebSearch: true, context: "", maxScore: 0 };
+    return { useWebSearch: true, context: "", maxScore: 0, embeddingCost: 0 };
   }
 };
 
 // Web search completion
 export const createWebSearchCompletion = async (
   openai: OpenAI,
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  userQuestion: string
 ) => {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-search-preview",
@@ -260,15 +281,12 @@ export const createWebSearchCompletion = async (
   });
 
   // Log token usage and cost for web search
+  let cost = 0;
   if (completion.usage) {
     const totalTokens = completion.usage.total_tokens;
     const inputTokens = completion.usage.prompt_tokens;
     const outputTokens = completion.usage.completion_tokens;
-    const cost = calculateCost(
-      "gpt-4o-search-preview",
-      inputTokens,
-      outputTokens
-    );
+    cost = calculateCost("gpt-4o-search-preview", inputTokens, outputTokens);
 
     logTokenUsage(
       "Web search",
@@ -278,9 +296,19 @@ export const createWebSearchCompletion = async (
       outputTokens,
       cost
     );
+
+    // Save web search cost to database
+    await saveAiOperationCost(
+      userQuestion,
+      "web_search",
+      "gpt-4o-search-preview",
+      inputTokens,
+      outputTokens,
+      cost
+    );
   }
 
-  return completion;
+  return { completion, usage: completion.usage, cost };
 };
 
 // Knowledge base completion
@@ -288,7 +316,8 @@ export const createKnowledgeBaseCompletion = async (
   openai: OpenAI,
   messages: ChatMessage[],
   context: string,
-  lastMessage: string
+  lastMessage: string,
+  userQuestion: string
 ) => {
   // Create system message with knowledge base context
   const systemMessage = {
@@ -308,11 +337,12 @@ export const createKnowledgeBaseCompletion = async (
   });
 
   // Log token usage and cost for knowledge base
+  let cost = 0;
   if (completion.usage) {
     const totalTokens = completion.usage.total_tokens;
     const inputTokens = completion.usage.prompt_tokens;
     const outputTokens = completion.usage.completion_tokens;
-    const cost = calculateCost("gpt-4", inputTokens, outputTokens);
+    cost = calculateCost("gpt-4", inputTokens, outputTokens);
 
     logTokenUsage(
       "Base de connaissances",
@@ -322,7 +352,17 @@ export const createKnowledgeBaseCompletion = async (
       outputTokens,
       cost
     );
+
+    // Save knowledge base cost to database
+    await saveAiOperationCost(
+      userQuestion,
+      "knowledge_base",
+      "gpt-4",
+      inputTokens,
+      outputTokens,
+      cost
+    );
   }
 
-  return completion;
+  return { completion, usage: completion.usage, cost };
 };
