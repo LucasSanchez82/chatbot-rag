@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
       const { isRelevant } = await isQuestionRelevantForWebSearch(
         openai,
         lastMessage,
-        groupTransactionIdentifier
+        groupTransactionIdentifier,
+        messages
       );
 
       if (!isRelevant) {

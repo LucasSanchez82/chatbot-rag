@@ -12,7 +12,9 @@ const main = async () => {
   );
   console.table(
     groupCosts.map((cost, index) => ({
-      question: groups[index].user_question,
+      question:
+        groups[index].user_question?.substring(0, 150) +
+        (groups[index].user_question?.length > 150 ? "..." : ""),
       cost: cost.toFixed(6),
       operation: groups[index].operation?.operation || "N/A",
       similarity_score: groups[index].similarity_score

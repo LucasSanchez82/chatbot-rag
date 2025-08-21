@@ -92,17 +92,29 @@ export const logTokenUsage = (
 };
 
 // Save individual AI operation cost to database
-export const saveAiOperationCost = async (
-  userQuestion: string,
-  operation: string,
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-  cost: number,
-  groupTransactionIdentifier: string,
-  groupOperation: "web_search" | "knowledge_base" | null,
-  similarityScore?: number
-) => {
+export const saveAiOperationCost = async ({
+  userQuestion,
+  operation,
+  model,
+  inputTokens,
+  outputTokens,
+  cost,
+  groupOperation,
+  groupTransactionIdentifier,
+  similarityScore,
+  userResponse,
+}: {
+  userQuestion?: string;
+  userResponse?: string;
+  operation: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+  groupTransactionIdentifier: string;
+  groupOperation: "web_search" | "knowledge_base" | null;
+  similarityScore?: number;
+}) => {
   try {
     await prisma.transactionItem.create({
       data: {
@@ -111,7 +123,8 @@ export const saveAiOperationCost = async (
             where: { id: groupTransactionIdentifier },
             create: {
               id: groupTransactionIdentifier,
-              user_question: userQuestion,
+              user_question: userQuestion ?? "",
+              user_response: null,
               similarity_score: similarityScore ?? undefined,
             },
           },
@@ -123,7 +136,7 @@ export const saveAiOperationCost = async (
         cost,
       },
     });
-    if (groupOperation) {
+    if (groupOperation || userResponse) {
       console.log(
         `Saving operation "${groupOperation}" for group ${groupTransactionIdentifier}`
       );
@@ -138,6 +151,7 @@ export const saveAiOperationCost = async (
                 },
               }
             : undefined,
+          user_response: userResponse ?? undefined,
         },
       });
     }
@@ -159,7 +173,8 @@ export const logEmbeddingUsage = (embeddingTokens: number, cost: number) => {
 export const isQuestionRelevantForWebSearch = async (
   openai: OpenAI,
   message: string,
-  groupTransactionIdentifier: string
+  groupTransactionIdentifier: string,
+  messages: ChatMessage[] = []
 ): Promise<{
   isRelevant: boolean;
   usage?: OpenAI.CompletionUsage;
@@ -169,6 +184,7 @@ export const isQuestionRelevantForWebSearch = async (
     const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
+        ...messages,
         {
           role: "system",
           content: SYSTEM_PROMPTS.RELEVANCE_FILTER_FOR_WEB_SEARCH,
@@ -200,19 +216,18 @@ export const isQuestionRelevantForWebSearch = async (
       );
 
       // Save relevance check cost to database
-      await saveAiOperationCost(
-        message,
-        "relevance",
-        "gpt-4",
+      await saveAiOperationCost({
+        operation: "relevance",
+        model: "gpt-4",
         inputTokens,
         outputTokens,
         cost,
         groupTransactionIdentifier,
-        null
-      );
+        groupOperation: null,
+      });
     }
-
     const answer = response.choices[0].message.content?.trim().toLowerCase();
+
     return {
       isRelevant: answer === "oui",
       usage: response.usage,
@@ -242,28 +257,6 @@ export const checkSimilarityAndDecideModel = async (
 
     // Log embedding cost
     let embeddingCost = 0;
-    if (vector.usage) {
-      const embeddingTokens = vector.usage.total_tokens;
-      embeddingCost = calculateCost(
-        env.OPENAI_EMBEDDING_MODEL,
-        embeddingTokens,
-        0
-      );
-
-      logEmbeddingUsage(embeddingTokens, embeddingCost);
-
-      // Save embedding cost to database
-      await saveAiOperationCost(
-        message,
-        "embedding",
-        env.OPENAI_EMBEDDING_MODEL,
-        embeddingTokens,
-        0,
-        embeddingCost,
-        groupTransactionIdentifier,
-        null
-      );
-    }
 
     // Search for similar messages in the knowledge base
     const similarMessages = await client.search(env.QDRANT_DB_COLLECTION, {
@@ -277,7 +270,29 @@ export const checkSimilarityAndDecideModel = async (
       similarMessages.length > 0
         ? Math.max(...similarMessages.map((point) => point.score))
         : 0;
+    if (vector.usage) {
+      const embeddingTokens = vector.usage.total_tokens;
+      embeddingCost = calculateCost(
+        env.OPENAI_EMBEDDING_MODEL,
+        embeddingTokens,
+        0
+      );
 
+      logEmbeddingUsage(embeddingTokens, embeddingCost);
+
+      // Save embedding cost to database
+      await saveAiOperationCost({
+        userQuestion: message,
+        operation: "embedding",
+        model: env.OPENAI_EMBEDDING_MODEL,
+        inputTokens: embeddingTokens,
+        outputTokens: 0,
+        cost: embeddingCost,
+        groupTransactionIdentifier,
+        groupOperation: null,
+        similarityScore: maxScore,
+      });
+    }
     // Extract context from similar messages
     const context = similarMessages
       .map((msg) => msg?.payload?.text)
@@ -336,16 +351,16 @@ export const createWebSearchCompletion = async (
     );
 
     // Save web search cost to database
-    await saveAiOperationCost(
-      userQuestion,
-      "web_search",
-      "gpt-4o-search-preview",
-      inputTokens,
-      outputTokens,
-      cost,
-      groupTransactionIdentifier,
-      "web_search"
-    );
+    await saveAiOperationCost({
+      operation: "web_search",
+      model: "gpt-4o-search-preview",
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cost: cost,
+      groupTransactionIdentifier: groupTransactionIdentifier,
+      groupOperation: "web_search",
+      userResponse: completion.choices[0].message.content ?? "",
+    });
   }
 
   return { completion, usage: completion.usage, cost };
@@ -395,16 +410,16 @@ export const createKnowledgeBaseCompletion = async (
     );
 
     // Save knowledge base cost to database
-    await saveAiOperationCost(
-      userQuestion,
-      "knowledge_base",
-      "gpt-4",
-      inputTokens,
-      outputTokens,
-      cost,
-      groupTransactionIdentifier,
-      "knowledge_base"
-    );
+    await saveAiOperationCost({
+      operation: "knowledge_base",
+      model: "gpt-4",
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cost: cost,
+      groupTransactionIdentifier: groupTransactionIdentifier,
+      groupOperation: "knowledge_base",
+      userResponse: completion.choices[0].message.content ?? "",
+    });
   }
 
   return { completion, usage: completion.usage, cost };
