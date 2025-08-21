@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "TransactionGroup" ADD COLUMN     "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "similarity_score" DOUBLE PRECISION;

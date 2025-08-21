@@ -15,6 +15,9 @@ const main = async () => {
       question: groups[index].user_question,
       cost: cost.toFixed(6),
       operation: groups[index].operation?.operation || "N/A",
+      similarity_score: groups[index].similarity_score
+        ? `${groups[index].similarity_score * 100}%`
+        : "N/A",
     }))
   );
 

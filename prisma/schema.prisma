@@ -28,10 +28,12 @@ model TransactionItem {
 }
 
 model TransactionGroup {
-  id            String @id @default(cuid())
-  user_question String
-
-  operationId Int?
+  id               String   @id @default(cuid())
+  user_question    String
+  user_response    String?
+  similarity_score Float?
+  createdAt        DateTime @default(now()) @db.Timestamp()
+  operationId      Int?
 
   operation TransactionGroupOperation? @relation(fields: [operationId], references: [id])
   items     TransactionItem[]

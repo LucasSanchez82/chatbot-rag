@@ -100,7 +100,8 @@ export const saveAiOperationCost = async (
   outputTokens: number,
   cost: number,
   groupTransactionIdentifier: string,
-  groupOperation: "web_search" | "knowledge_base" | null
+  groupOperation: "web_search" | "knowledge_base" | null,
+  similarityScore?: number
 ) => {
   try {
     await prisma.transactionItem.create({
@@ -111,6 +112,7 @@ export const saveAiOperationCost = async (
             create: {
               id: groupTransactionIdentifier,
               user_question: userQuestion,
+              similarity_score: similarityScore ?? undefined,
             },
           },
         },
