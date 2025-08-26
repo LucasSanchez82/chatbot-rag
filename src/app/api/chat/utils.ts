@@ -115,6 +115,7 @@ export const saveAiOperationCost = async ({
   groupOperation: "web_search" | "knowledge_base" | null;
   similarityScore?: number;
 }) => {
+  console.log("user question : ", userQuestion);
   try {
     await prisma.transactionItem.create({
       data: {
@@ -152,6 +153,7 @@ export const saveAiOperationCost = async ({
               }
             : undefined,
           user_response: userResponse ?? undefined,
+          user_question: userQuestion ?? undefined,
         },
       });
     }
@@ -280,6 +282,7 @@ export const checkSimilarityAndDecideModel = async (
 
       logEmbeddingUsage(embeddingTokens, embeddingCost);
 
+      console.log("❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️❄️", message);
       // Save embedding cost to database
       await saveAiOperationCost({
         userQuestion: message,
