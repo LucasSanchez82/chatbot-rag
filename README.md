@@ -12,7 +12,7 @@
 
 ```bash
 git clone https://github.com/LucasSanchez82/chatbot-rag.git
-cd chatbot-interne
+cd chatbot-rag
 bun install
 ```
 
