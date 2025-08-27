@@ -1,36 +1,110 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# France Challenges Chatbot
 
-## Getting Started
+## 🚀 Setup
 
-First, run the development server:
+### Prérequis
+
+- [Bun](https://bun.sh/) Installé ( ou utilise npm )
+- [Docker](https://www.docker.com/) Docker Compose
+- OpenAI API key
+
+### 1. Clone and Install Dependencies
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <repository-url>
+cd chatbot-interne
+bun install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Environment Configuration
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Copier le .env depuis .env.example
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cp .env.example .env
+```
 
-## Learn More
+Configurer le .env comme suit
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# OpenAI Configuration (Required)
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_MODEL_DIMENSION=1536
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Qdrant Configuration (Required - Vector Database)
+QDRANT_URL=http://localhost:6338
+QDRANT_PORT=6338
+QDRANT_DB_COLLECTION=test_qdrant_fc_openai_embedding_only_questions
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# PostgreSQL Configuration (Required - for cost tracking)
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_secure_password_here
+POSTGRES_DB=chatbot_db
+POSTGRES_PORT=5447
+DATABASE_URL=postgresql://postgres:your_secure_password_here@localhost:5447/chatbot_db
 
-## Deploy on Vercel
+# pgAdmin Configuration (Optional - for database administration)
+PGADMIN_EMAIL=admin@chatbot.local
+PGADMIN_PASSWORD=admin_password
+PGADMIN_PORT=5050
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+### 3. Démarrer les services docker compose
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Lancer Qdrant et postgres
+
+```bash
+docker compose up -d
+```
+
+les serveurs lancés :
+- PostgreSQL db (port 5447)
+- Qdrant base de donnée vectorielle et son api (port 6338) ( ui : http://localhost:6338/dashboard )
+- pgAdmin web interface (port 5050, optional)
+
+### 4. Setup la base de données postgres
+
+Lancer la migration:
+
+```bash
+bun run prisma migrate dev
+```
+
+### 5. Remplir la base de donnée vectoriel
+
+Script seed :
+
+```bash
+bun run seed
+```
+
+Devrait :
+- utiliser `datas.csv` et remplir la base de donnée avec
+- Generer des embeddings avec openai
+- Stocker les questions reponses pour ensuite faire des recherches de similarites
+
+### 6. Lancer l'application
+
+Lancer le serveur web :
+
+```bash
+bun run dev
+```
+
+Ouvrir [http://localhost:3000](http://localhost:3000) Pour tester le chatbot.
+
+## 📊 Suivre les couts
+
+### Suivre l'utilisation openai
+
+Commande pour suivre la consommation des couts :
+
+```bash
+bun run print-costs
+```
+
+Cette commande permet de visionner :
+- L'utilisation des tokens et leurs couts
+- niveau de similarité par question
+- Quel type de reponse (web search | knowledge base)

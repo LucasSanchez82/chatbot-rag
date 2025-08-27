@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: always
+    container_name: qdrant
+    ports:
+      - ${QDRANT_PORT:-6333}:6333
+      - ${QDRANT_PORT_GRPC:-6334}:6334
+    expose:
+      - ${QDRANT_PORT:-6333}
+      - ${QDRANT_PORT_GRPC:-6334}
+      # - 6335 # Distributed deployment
+    configs:
+      - source: qdrant_config
+        target: /qdrant/config/production.yaml
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+  postgres:
+    image: postgres:15-alpine
+    container_name: chatbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-chatbot_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - chatbot-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-chatbot_db}",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  chatbot-network:
+    driver: bridge
+configs:
+  qdrant_config:
+    content: |
+      log_level: INFO
