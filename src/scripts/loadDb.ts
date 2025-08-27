@@ -9,25 +9,22 @@ import OpenAI from "openai";
 type SimilarityMetric = "cosine" | "dot_product" | "euclidean";
 
 const {
-  ASTRA_DB_APPLICATION_TOKEN,
-  ASTRA_DB_NAMESPACE,
-  ASTRA_DB_COLLECTION,
-  ASTRA_DB_ENDPOINT,
+  QDRANT_URL,
+  QDRANT_DB_COLLECTION,
   OPENAI_API_KEY,
   EMBEDDING_MODEL_DIMENSION,
   OPENAI_EMBEDDING_MODEL,
 } = process.env;
+
 if (
-  !ASTRA_DB_APPLICATION_TOKEN ||
-  !ASTRA_DB_NAMESPACE ||
-  !ASTRA_DB_COLLECTION ||
-  !ASTRA_DB_ENDPOINT ||
+  !QDRANT_URL ||
+  !QDRANT_DB_COLLECTION ||
   !EMBEDDING_MODEL_DIMENSION ||
   !OPENAI_EMBEDDING_MODEL ||
   !OPENAI_API_KEY
 ) {
   throw new Error(
-    "Please set the environment variables: ASTRA_DB_APPLICATION_TOKEN, ASTRA_DB_NAMESPACE, ASTRA_DB_COLLECTION, ASTRA_DB_ENDPOINT, OPENAI_API_KEY, EMBEDDING_MODEL_DIMENSION, OPENAI_EMBEDDING_MODEL"
+    "Please set the environment variables: QDRANT_URL, QDRANT_DB_COLLECTION, OPENAI_API_KEY, EMBEDDING_MODEL_DIMENSION, OPENAI_EMBEDDING_MODEL"
   );
 }
 
@@ -62,7 +59,7 @@ const franceChallengesData = [
 ];
 // const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN);
 
-const client = new QdrantClient({ host: "localhost", port: 6333 });
+const client = new QdrantClient({ url: QDRANT_URL });
 
 const splitter = new RecursiveCharacterTextSplitter({
   chunkSize: embeddingDimensions,
@@ -95,10 +92,10 @@ const createCollection = async (
 ) => {
   try {
     console.log(
-      `Creating collection ${ASTRA_DB_COLLECTION} with similarity metric ${similarityMetric}...`
+      `Creating collection ${QDRANT_DB_COLLECTION} with similarity metric ${similarityMetric}...`
     );
     const createdCollection = await client.createCollection(
-      ASTRA_DB_COLLECTION,
+      QDRANT_DB_COLLECTION,
       {
         vectors: {
           size: embeddingDimensions, // OpenAI embedding dimensions
@@ -159,7 +156,7 @@ const loadData = async () => {
   if (allPoints.length > 0) {
     console.log(`Inserting ${allPoints.length} points in batch...`);
     try {
-      const createdVectors = await client.upsert(ASTRA_DB_COLLECTION, {
+      const createdVectors = await client.upsert(QDRANT_DB_COLLECTION, {
         wait: true,
         points: allPoints,
       });
@@ -252,7 +249,7 @@ const loadCsvData = async () => {
     if (allPoints.length > 0) {
       console.log(`Inserting ${allPoints.length} Q&A pairs in batch...`);
       try {
-        const createdVectors = await client.upsert(ASTRA_DB_COLLECTION, {
+        const createdVectors = await client.upsert(QDRANT_DB_COLLECTION, {
           wait: true,
           points: allPoints,
         });
@@ -274,7 +271,7 @@ console.log("Seeding database...");
 createCollection().then(async () => {
   try {
     await loadCsvData();
-    await loadData();
+    // await loadData();
     console.log("All data loading completed successfully!");
   } catch (error) {
     console.error("Error during data loading:", error);

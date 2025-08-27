@@ -1,6 +1,22 @@
 version: "3.8"
 
 services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: always
+    container_name: qdrant
+    ports:
+      - ${QDRANT_PORT:-6333}:6333
+      - ${QDRANT_PORT_GRPC:-6334}:6334
+    expose:
+      - ${QDRANT_PORT:-6333}
+      - ${QDRANT_PORT_GRPC:-6334}
+      # - 6335 # Distributed deployment
+    configs:
+      - source: qdrant_config
+        target: /qdrant/config/production.yaml
+    volumes:
+      - ./qdrant_data:/qdrant/storage
   postgres:
     image: postgres:15-alpine
     container_name: chatbot-postgres
@@ -28,31 +44,14 @@ services:
       retries: 5
       start_period: 30s
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: chatbot-pgadmin
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@chatbot.local}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-    ports:
-      - "${PGADMIN_PORT:-5050}:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - chatbot-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-
 volumes:
   postgres_data:
-    driver: local
-  pgadmin_data:
     driver: local
 
 networks:
   chatbot-network:
     driver: bridge
+configs:
+  qdrant_config:
+    content: |
+      log_level: INFO

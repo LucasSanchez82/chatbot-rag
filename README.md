@@ -1,79 +1,110 @@
 # France Challenges Chatbot
 
-This is a [Next.js](https://nextjs.org) chatbot application that uses OpenAI's Assistants API with file search capabilities for the France Challenges company.
+## 🚀 Setup
 
-## Setup Instructions
+### Prérequis
 
-### 1. Environment Variables
+- [Bun](https://bun.sh/) Installé ( ou utilise npm )
+- [Docker](https://www.docker.com/) Docker Compose
+- OpenAI API key
 
-Create a `.env` file in the root directory and add your OpenAI API key:
+### 1. Clone and Install Dependencies
 
 ```bash
+git clone <repository-url>
+cd chatbot-interne
+bun install
+```
+
+### 2. Environment Configuration
+
+Copier le .env depuis .env.example
+
+```bash
+cp .env.example .env
+```
+
+Configurer le .env comme suit
+
+```bash
+# OpenAI Configuration (Required)
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_MODEL_DIMENSION=1536
+
+# Qdrant Configuration (Required - Vector Database)
+QDRANT_URL=http://localhost:6338
+QDRANT_PORT=6338
+QDRANT_DB_COLLECTION=test_qdrant_fc_openai_embedding_only_questions
+
+# PostgreSQL Configuration (Required - for cost tracking)
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_secure_password_here
+POSTGRES_DB=chatbot_db
+POSTGRES_PORT=5447
+DATABASE_URL=postgresql://postgres:your_secure_password_here@localhost:5447/chatbot_db
+
+# pgAdmin Configuration (Optional - for database administration)
+PGADMIN_EMAIL=admin@chatbot.local
+PGADMIN_PASSWORD=admin_password
+PGADMIN_PORT=5050
+
 ```
+### 3. Démarrer les services docker compose
 
-### 2. Setup OpenAI Assistant
-
-Run the setup script to create an OpenAI Assistant with file search capabilities:
+Lancer Qdrant et postgres
 
 ```bash
-bun run setup-openai
+docker compose up -d
 ```
 
-This script will:
-- Upload your `datas.csv` file to OpenAI
-- Create an Assistant configured for France Challenges
-- Output the Assistant ID and File ID that you need to add to your `.env` file
+les serveurs lancés :
+- PostgreSQL db (port 5447)
+- Qdrant base de donnée vectorielle et son api (port 6338) ( ui : http://localhost:6338/dashboard )
+- pgAdmin web interface (port 5050, optional)
 
-After running the script, add the generated IDs to your `.env` file:
+### 4. Setup la base de données postgres
+
+Lancer la migration:
 
 ```bash
-OPENAI_ASSISTANT_ID=your_assistant_id_here
-OPENAI_FILE_ID=your_file_id_here
+bun run prisma migrate dev
 ```
 
-### 3. Run the Development Server
+### 5. Remplir la base de donnée vectoriel
+
+Script seed :
 
 ```bash
-bun dev
-# or
-npm run dev
+bun run seed
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the chatbot.
+Devrait :
+- utiliser `datas.csv` et remplir la base de donnée avec
+- Generer des embeddings avec openai
+- Stocker les questions reponses pour ensuite faire des recherches de similarites
 
-## Project Structure
+### 6. Lancer l'application
 
-- `src/app/api/chat/route.ts` - API endpoint for chat functionality using OpenAI Assistants
-- `src/scripts/createOpenaiFile.ts` - Script to setup OpenAI Assistant and upload knowledge base
-- `datas.csv` - Knowledge base file containing Q&A data for France Challenges
+Lancer le serveur web :
 
-## How It Works
+```bash
+bun run dev
+```
 
-The chatbot uses OpenAI's Assistants API with file search capabilities:
+Ouvrir [http://localhost:3000](http://localhost:3000) Pour tester le chatbot.
 
-1. When you run the setup script, it uploads your knowledge base (`datas.csv`) to OpenAI
-2. It creates an Assistant specifically trained for France Challenges use cases
-3. When users ask questions, the Assistant searches through the uploaded files to provide relevant answers
-4. The Assistant is configured to respond in French and focus on educational services, sales operations, and France Challenges-specific information
+## 📊 Suivre les couts
 
-## Features
+### Suivre l'utilisation openai
 
-- File-based knowledge retrieval using OpenAI's file search
-- French language support
-- Specialized for educational services and B2B sales
-- Markdown formatting support
-- Error handling and validation
+Commande pour suivre la consommation des couts :
 
-## Learn More
+```bash
+bun run print-costs
+```
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [OpenAI Assistants API](https://platform.openai.com/docs/assistants/overview) - learn about OpenAI Assistants.
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Make sure to add your environment variables in the Vercel dashboard before deploying.
+Cette commande permet de visionner :
+- L'utilisation des tokens et leurs couts
+- niveau de similarité par question
+- Quel type de reponse (web search | knowledge base)

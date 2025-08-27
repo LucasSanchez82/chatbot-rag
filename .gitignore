@@ -42,3 +42,5 @@ next-env.d.ts
 datas.csv
 openai-config.json
 /src/generated/prisma
+
+qdrant_data/
