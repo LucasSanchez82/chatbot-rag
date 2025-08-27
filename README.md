@@ -11,7 +11,7 @@
 ### 1. Clone and Install Dependencies
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/LucasSanchez82/chatbot-rag.git
 cd chatbot-interne
 bun install
 ```
