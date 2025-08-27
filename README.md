@@ -44,11 +44,6 @@ POSTGRES_DB=chatbot_db
 POSTGRES_PORT=5447
 DATABASE_URL=postgresql://postgres:your_secure_password_here@localhost:5447/chatbot_db
 
-# pgAdmin Configuration (Optional - for database administration)
-PGADMIN_EMAIL=admin@chatbot.local
-PGADMIN_PASSWORD=admin_password
-PGADMIN_PORT=5050
-
 ```
 ### 3. Démarrer les services docker compose
 
