@@ -5,16 +5,17 @@ import { QdrantClient } from "@qdrant/js-client-rest";
 import {
   getenv,
   isQuestionRelevantForWebSearch,
-  checkSimilarityAndDecideModel,
   createWebSearchCompletion,
+  checkSimilarityAndDecideModel,
   createKnowledgeBaseCompletion,
+  checkKnowledgeBaseOrWebSearch,
 } from "./utils";
 import { POLITE_REFUSAL_RESPONSE } from "./constants";
 
 // Initialize environment variables and clients
 const env = getenv();
-const client = new QdrantClient({ url: env.QDRANT_URL });
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+const client = new QdrantClient({ url: env.QDRANT_URL });
 export async function POST(req: NextRequest) {
   try {
     const { messages } = await req.json();
@@ -35,68 +36,34 @@ export async function POST(req: NextRequest) {
     console.log(
       `Starting transaction group with identifier: ${groupTransactionIdentifier}`
     );
-    // Check similarity and decide on model type (saves embedding cost automatically)
-    const { useWebSearch, context, maxScore } =
-      await checkSimilarityAndDecideModel(
-        openai,
-        client,
-        env,
-        lastMessage,
-        groupTransactionIdentifier
-      );
 
-    if (useWebSearch) {
-      // Check relevance (saves relevance cost automatically)
-      const { isRelevant } = await isQuestionRelevantForWebSearch(
-        openai,
-        lastMessage,
-        groupTransactionIdentifier,
-        messages
-      );
+    // Check similarity with knowledge base
+    const {
+      useWebSearch,
+      context,
+      maxScore: maxSimilarityScore,
+    } = await checkSimilarityAndDecideModel(
+      openai,
+      client,
+      env,
+      lastMessage,
+      groupTransactionIdentifier
+    );
 
-      if (!isRelevant) {
-        console.log(`Question non pertinente: ${lastMessage}`);
-        return NextResponse.json(POLITE_REFUSAL_RESPONSE, {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-          },
-        });
-      }
-
+    if (!useWebSearch && context) {
+      // Use knowledge base with RAG
       console.log(
-        `Question pertinente, recherche dans le web... (max similarity: ${maxScore})`
+        `Found relevant context in knowledge base (score: ${maxSimilarityScore})`
       );
 
-      // Web search completion (saves web search cost automatically)
-      const { completion } = await createWebSearchCompletion(
-        openai,
-        messages,
-        lastMessage,
-        groupTransactionIdentifier
-      );
-
-      return NextResponse.json(completion, {
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    } else {
-      console.log(`Using knowledge base model (max similarity: ${maxScore})`);
-      console.log("Context found:", context.length > 0 ? "Yes" : "No");
-
-      // Knowledge base completion (saves knowledge base cost automatically)
-      const { completion } = await createKnowledgeBaseCompletion(
+      const { completion } = await createKnowledgeBaseCompletion({
         openai,
         messages,
         context,
         lastMessage,
-        lastMessage,
-        groupTransactionIdentifier
-      );
+        groupTransactionIdentifier,
+        similarityScore: maxSimilarityScore,
+      });
 
       return NextResponse.json(completion, {
         headers: {
@@ -106,6 +73,95 @@ export async function POST(req: NextRequest) {
         },
       });
     }
+
+    // No relevant context in knowledge base, proceed with web search
+    console.log(
+      `No relevant context found (score: ${maxSimilarityScore}), checking web search relevance...`
+    );
+
+    // Check relevance before doing web search
+    const { isRelevant } = await isQuestionRelevantForWebSearch(
+      openai,
+      lastMessage,
+      groupTransactionIdentifier,
+      messages
+    );
+
+    if (!isRelevant) {
+      console.log(`Question non pertinente: ${lastMessage}`);
+
+      return NextResponse.json(POLITE_REFUSAL_RESPONSE, {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+    // ///////////////////`
+
+    // First, check if AI can answer with base knowledge or needs web search
+    const { needsWebSearch, response } = await checkKnowledgeBaseOrWebSearch(
+      openai,
+      lastMessage,
+      groupTransactionIdentifier,
+      messages
+    );
+
+    if (!needsWebSearch && response) {
+      console.log("AI answered with base knowledge");
+
+      // Create a response in the expected OpenAI format
+      const completion = {
+        id: "chatcmpl-" + Date.now(),
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: "gpt-4",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: response,
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        },
+      };
+
+      return NextResponse.json(completion, {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    // AI returned "null", so we need to check similarity and decide between RAG or web search
+    console.log(
+      "AI returned null, checking similarity in knowledge base...\n\t- starting web search..."
+    );
+
+    // Web search completion (saves web search cost automatically)
+    const { completion } = await createWebSearchCompletion({
+      openai,
+      messages,
+      groupTransactionIdentifier,
+    });
+
+    return NextResponse.json(completion, {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
   } catch (error) {
     console.error("Error in chat route:", error);
     return NextResponse.json(

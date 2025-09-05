@@ -112,7 +112,7 @@ export const saveAiOperationCost = async ({
   outputTokens: number;
   cost: number;
   groupTransactionIdentifier: string;
-  groupOperation: "web_search" | "knowledge_base" | null;
+  groupOperation: "web_search" | "knowledge_base" | "knowledge_gpt4" | null;
   similarityScore?: number;
 }) => {
   console.log("user question : ", userQuestion);
@@ -154,6 +154,10 @@ export const saveAiOperationCost = async ({
             : undefined,
           user_response: userResponse ?? undefined,
           user_question: userQuestion ?? undefined,
+          // Only update similarity_score if it's provided and not undefined
+          ...(similarityScore !== undefined && {
+            similarity_score: similarityScore,
+          }),
         },
       });
     }
@@ -184,7 +188,7 @@ export const isQuestionRelevantForWebSearch = async (
 }> => {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4.1-nano",
       messages: [
         ...messages,
         {
@@ -196,7 +200,7 @@ export const isQuestionRelevantForWebSearch = async (
           content: message,
         },
       ],
-      max_tokens: 5,
+      max_tokens: 1000,
       temperature: 0.1,
     });
 
@@ -229,9 +233,10 @@ export const isQuestionRelevantForWebSearch = async (
       });
     }
     const answer = response.choices[0].message.content?.trim().toLowerCase();
+    console.log("\x1b[33mRelevance check answer:\x1b[0m", answer);
 
     return {
-      isRelevant: answer === "oui",
+      isRelevant: Boolean(answer?.startsWith("oui")),
       usage: response.usage,
       cost,
     };
@@ -239,6 +244,82 @@ export const isQuestionRelevantForWebSearch = async (
     console.error("Error checking question relevance:", error);
     // En cas d'erreur, on autorise la question par défaut
     return { isRelevant: true, cost: 0 };
+  }
+};
+
+// Check if AI can answer with base knowledge or needs web search
+export const checkKnowledgeBaseOrWebSearch = async (
+  openai: OpenAI,
+  message: string,
+  groupTransactionIdentifier: string,
+  messages: ChatMessage[] = []
+): Promise<{
+  needsWebSearch: boolean;
+  response?: string;
+  usage?: OpenAI.CompletionUsage;
+  cost: number;
+}> => {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        ...messages,
+        {
+          role: "system",
+          content: SYSTEM_PROMPTS.KNOWLEDGE_BASE_OR_NULL_CHECK,
+        },
+        {
+          role: "user",
+          content: message,
+        },
+      ],
+      max_tokens: 1000,
+      temperature: 0.3,
+    });
+
+    const answer = response.choices[0].message.content?.trim()?.toLowerCase();
+    const isAnswer = !Boolean(answer?.startsWith("null"));
+
+    // Log token usage for knowledge base check
+    let cost = 0;
+    if (response.usage) {
+      const totalTokens = response.usage.total_tokens;
+      const inputTokens = response.usage.prompt_tokens;
+      const outputTokens = response.usage.completion_tokens;
+      cost = calculateCost("gpt-4", inputTokens, outputTokens);
+
+      logTokenUsage(
+        "gpt_knowledge_check",
+        "gpt-4",
+        totalTokens,
+        inputTokens,
+        outputTokens,
+        cost
+      );
+
+      // Save knowledge base check cost to database
+      await saveAiOperationCost({
+        operation: isAnswer ? "knowledge_check_1" : "knowledge_check_0",
+        model: "gpt-4",
+        inputTokens,
+        outputTokens,
+        cost,
+        groupTransactionIdentifier,
+        groupOperation: "knowledge_gpt4",
+        userResponse: answer ?? "",
+      });
+    }
+
+    return {
+      needsWebSearch: !isAnswer,
+      response: isAnswer ? answer : undefined,
+      usage: response.usage,
+      cost,
+    };
+  } catch (error) {
+    console.error("Error checking knowledge base or web search:", error);
+    // if error -> web search
+    return { needsWebSearch: true, cost: 0 };
   }
 };
 
@@ -317,12 +398,15 @@ export const checkSimilarityAndDecideModel = async (
 };
 
 // Web search completion
-export const createWebSearchCompletion = async (
-  openai: OpenAI,
-  messages: ChatMessage[],
-  userQuestion: string,
-  groupTransactionIdentifier: string
-) => {
+export const createWebSearchCompletion = async ({
+  groupTransactionIdentifier,
+  messages,
+  openai,
+}: {
+  openai: OpenAI;
+  messages: ChatMessage[];
+  groupTransactionIdentifier: string;
+}) => {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-search-preview",
     messages: [
@@ -369,14 +453,21 @@ export const createWebSearchCompletion = async (
 };
 
 // Knowledge base completion
-export const createKnowledgeBaseCompletion = async (
-  openai: OpenAI,
-  messages: ChatMessage[],
-  context: string,
-  lastMessage: string,
-  userQuestion: string,
-  groupTransactionIdentifier: string
-) => {
+export const createKnowledgeBaseCompletion = async ({
+  context,
+  groupTransactionIdentifier,
+  lastMessage,
+  messages,
+  openai,
+  similarityScore,
+}: {
+  openai: OpenAI;
+  messages: ChatMessage[];
+  context: string;
+  lastMessage: string;
+  groupTransactionIdentifier: string;
+  similarityScore?: number;
+}) => {
   // Create system message with knowledge base context
   const systemMessage = {
     role: "system" as const,
@@ -421,6 +512,8 @@ export const createKnowledgeBaseCompletion = async (
       groupTransactionIdentifier: groupTransactionIdentifier,
       groupOperation: "knowledge_base",
       userResponse: completion.choices[0].message.content ?? "",
+      userQuestion: lastMessage,
+      similarityScore,
     });
   }
 
