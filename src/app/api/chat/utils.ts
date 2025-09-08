@@ -519,3 +519,24 @@ export const createKnowledgeBaseCompletion = async ({
 
   return { completion, usage: completion.usage, cost };
 };
+
+export async function generateEmbedding({
+  openai,
+  text,
+  model,
+}: {
+  openai: OpenAI;
+  text: string;
+  model: string;
+}): Promise<number[]> {
+  try {
+    const response = await openai.embeddings.create({
+      model: model,
+      input: text,
+    });
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error("Error generating embedding:", error);
+    throw error;
+  }
+}

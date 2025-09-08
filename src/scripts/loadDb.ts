@@ -5,6 +5,7 @@ import "dotenv/config";
 import { parse } from "csv-parse/sync";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import OpenAI from "openai";
+import { generateEmbedding } from "@/app/api/chat/utils";
 
 type SimilarityMetric = "cosine" | "dot_product" | "euclidean";
 
@@ -34,18 +35,6 @@ const openai = new OpenAI({
 });
 
 // Function to generate embeddings using OpenAI
-const generateEmbedding = async (text: string): Promise<number[]> => {
-  try {
-    const response = await openai.embeddings.create({
-      model: OPENAI_EMBEDDING_MODEL,
-      input: text,
-    });
-    return response.data[0].embedding;
-  } catch (error) {
-    console.error("Error generating embedding:", error);
-    throw error;
-  }
-};
 
 const embeddingDimensions = parseInt(EMBEDDING_MODEL_DIMENSION, 10);
 // Track which URLs have been processed
@@ -129,7 +118,11 @@ const loadData = async () => {
 
       for (const chunk of chunks) {
         // Generate embeddings using OpenAI
-        const vector = await generateEmbedding(chunk);
+        const vector = await generateEmbedding({
+          openai,
+          text: chunk,
+          model: OPENAI_EMBEDDING_MODEL,
+        });
 
         allPoints.push({
           id: crypto.randomUUID(), // Use UUID for unique IDs
@@ -210,8 +203,19 @@ const loadCsvData = async () => {
 
     console.log(`Found ${records.length} Q&A pairs in CSV`);
 
-    const allPoints = [];
-
+    const allPoints: {
+      id: string;
+      vector: number[];
+      payload: {
+        text: string;
+        question: string;
+        response: string;
+        source: string;
+        type: string;
+        timestamp: string;
+      };
+    }[] = [];
+    const allPromises: Promise<number[]>[] = [];
     for (const record of records) {
       console.log("Processing record:", record);
       const question = record.question?.trim();
@@ -226,12 +230,18 @@ const loadCsvData = async () => {
       const combinedText = `Question: ${question}\nRéponse: ${response}`;
 
       // Generate embeddings using OpenAI
-      const vector = await generateEmbedding(combinedText);
+      allPromises.push(
+        generateEmbedding({
+          openai,
+          text: combinedText,
+          model: OPENAI_EMBEDDING_MODEL,
+        })
+      );
 
       // Add the Q&A pair to the batch
       allPoints.push({
         id: crypto.randomUUID(), // Use UUID for unique IDs
-        vector,
+        vector: [],
         payload: {
           text: combinedText,
           question,
@@ -244,6 +254,10 @@ const loadCsvData = async () => {
 
       console.log(`Prepared Q&A: ${question.substring(0, 50)}...`);
     }
+
+    (await Promise.all(allPromises)).forEach((vector, index) => {
+      allPoints[index].vector = vector;
+    });
 
     // Batch insert all Q&A pairs at once
     if (allPoints.length > 0) {

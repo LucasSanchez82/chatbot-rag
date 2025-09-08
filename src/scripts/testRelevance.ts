@@ -1,40 +1,47 @@
 import OpenAI from "openai";
 import "dotenv/config";
 import { getenv } from "../app/api/chat/utils";
-import { QdrantClient } from "@qdrant/js-client-rest";
 import { SYSTEM_PROMPTS } from "@/app/api/chat/constants";
+import { ask, askWithDefault } from "./utils/ask";
+
 const env = getenv();
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-const client = new QdrantClient({ url: env.QDRANT_URL });
 
 const TRUNCATION_LENGTH = 180;
 
+async function getInputs() {
+  // Allow passing values via CLI: bun run src/scripts/testRelevance.ts "Ma question" 5
+  const [, , qArg, iterArg] = process.argv;
+  let question = qArg ?? "";
+  if (!question) {
+    question = await ask("Quelle est ta question ?\n> ");
+  }
+  if (!question) throw new Error("Aucune question fournie.");
+
+  let iterations = iterArg ? parseInt(iterArg, 10) : NaN;
+  if (Number.isNaN(iterations)) {
+    const it = await askWithDefault("Combien de fois veux-tu tester ?", "1");
+    iterations = it ? parseInt(it, 10) : 1;
+  }
+  if (!Number.isFinite(iterations) || iterations <= 0) iterations = 1;
+  return { question, iterations };
+}
+
 const main = async () => {
   try {
-    // Initialize environment variables and clients
-
-    const question = prompt("Quelle est ta question ?\n\t : ");
-    if (!question) {
-      console.log("Aucune question fournie.");
-      return;
-    }
-    const iterations_str = prompt(
-      "Combien de fois veux-tu tester ? (défaut 1) : "
-    );
-    const iterations = iterations_str ? parseInt(iterations_str, 10) : 1;
+    const { question, iterations } = await getInputs();
 
     console.log("Ta question :", question);
+    console.log("Iterations :", iterations);
     console.log("=".repeat(60));
-    const askPromises: Promise<{
-      args: string;
-      output: boolean;
-    }>[] = [];
+
+    const askPromises: Promise<{ args: string; output: boolean }>[] = [];
     for (let i = 0; i < iterations; i++) {
-      askPromises.push(ask(question));
+      askPromises.push(askRelevance(question));
     }
     const responses = await Promise.all(askPromises);
 
-    console.log("iteration finit");
+    console.log("Itérations terminées");
     console.table(responses);
     const relevantCount = responses.filter((r) => r.output).length;
     console.log(
@@ -45,12 +52,13 @@ const main = async () => {
     );
   } catch (error) {
     console.error("Erreur lors du test:", error);
+    process.exitCode = 1;
   }
 };
 
 main();
 
-async function ask(question: string) {
+async function askRelevance(question: string) {
   const response = await openai.chat.completions.create({
     model: "gpt-4.1-nano",
     messages: [
@@ -67,7 +75,8 @@ async function ask(question: string) {
     temperature: 0.1,
   });
   const answer = response.choices[0]?.message?.content ?? "";
-  const [_, ...rest] = answer.split("\n");
+  const parts = answer.split("\n");
+  const rest = parts.slice(1);
   const isRelevant = Boolean(answer?.toLowerCase()?.trim()?.startsWith("oui"));
   console.log("Réponse du modèle :", answer);
   return {
