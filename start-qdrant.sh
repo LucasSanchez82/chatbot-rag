@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
-QDRANT_VERSION="${QDRANT_VERSION:-v1.15.0}"
 
-mkdir -p /app/bin /app/data
-cd /app/bin
+QDRANT_VERSION="${QDRANT_VERSION:-v1.15.4}"
 
-if [ ! -f qdrant ]; then
-  curl -L -o qdrant.tar.gz \
+APP_DIR="${APP_DIR:-$PWD}"
+BIN_DIR="$APP_DIR/bin"
+DATA_DIR="$APP_DIR/data"
+
+mkdir -p "$BIN_DIR" "$DATA_DIR"
+cd "$BIN_DIR"
+
+if [ ! -x qdrant ]; then
+  echo "Téléchargement de Qdrant $QDRANT_VERSION…"
+  curl -fsSL -o qdrant.tar.gz \
     "https://github.com/qdrant/qdrant/releases/download/${QDRANT_VERSION}/qdrant-x86_64-unknown-linux-gnu.tar.gz"
   tar -xzf qdrant.tar.gz
   chmod +x qdrant
 fi
 
+# Qdrant doit écouter sur 0.0.0.0:8080 côté Clever Cloud
+export QDRANT__SERVICE__HOST="${QDRANT__SERVICE__HOST:-0.0.0.0}"
+export QDRANT__SERVICE__HTTP_PORT="${QDRANT__SERVICE__HTTP_PORT:-8080}"
 
-./qdrant
+# Stockage dans un dossier local du projet (écrivable)
+export QDRANT__STORAGE__STORAGE_PATH="${QDRANT__STORAGE__STORAGE_PATH:-$DATA_DIR/storage}"
+export QDRANT__STORAGE__SNAPSHOTS_PATH="${QDRANT__STORAGE__SNAPSHOTS_PATH:-$DATA_DIR/snapshots}"
+
+mkdir -p "$QDRANT__STORAGE__STORAGE_PATH" "$QDRANT__STORAGE__SNAPSHOTS_PATH"
+
+echo "Lancement de Qdrant…"
+exec ./qdrant
