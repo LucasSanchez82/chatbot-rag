@@ -7,6 +7,8 @@ const env = getenv();
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 const client = new QdrantClient({ url: env.QDRANT_URL });
 
+const TRUNCATION_LENGTH = 180;
+
 const main = async () => {
   try {
     // Initialize environment variables and clients
@@ -24,9 +26,8 @@ const main = async () => {
     console.log("Ta question :", question);
     console.log("=".repeat(60));
     const askPromises: Promise<{
-      answer: string;
       args: string;
-      isRelevant: boolean;
+      output: boolean;
     }>[] = [];
     for (let i = 0; i < iterations; i++) {
       askPromises.push(ask(question));
@@ -35,7 +36,7 @@ const main = async () => {
 
     console.log("iteration finit");
     console.table(responses);
-    const relevantCount = responses.filter((r) => r.isRelevant).length;
+    const relevantCount = responses.filter((r) => r.output).length;
     console.log(
       `Sur ${iterations} itérations, ${relevantCount} réponses pertinentes (${(
         (relevantCount / iterations) *
@@ -70,8 +71,7 @@ async function ask(question: string) {
   const isRelevant = Boolean(answer?.toLowerCase()?.trim()?.startsWith("oui"));
   console.log("Réponse du modèle :", answer);
   return {
-    answer: isRelevant ? "Vrai" : "Faux",
-    isRelevant,
-    args: rest.join(" - "),
+    output: isRelevant,
+    args: rest.join(" - ").substring(0, TRUNCATION_LENGTH),
   };
 }
