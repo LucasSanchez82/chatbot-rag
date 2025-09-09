@@ -6,7 +6,10 @@ QDRANT_VERSION="${QDRANT_VERSION:-v1.15.4}"
 APP_DIR="${APP_DIR:-$PWD}"
 BIN_DIR="$APP_DIR/bin"
 DATA_DIR="$APP_DIR/data"
-
+echo "App dir: $APP_DIR"
+echo "Bin dir: $BIN_DIR"
+echo "Data dir: $DATA_DIR"
+echo "App Home : $APP_HOME"
 mkdir -p "$BIN_DIR" "$DATA_DIR"
 cd "$BIN_DIR"
 
